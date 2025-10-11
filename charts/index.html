@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset='utf-8'>
+<title>Macro Dashboard — Step 1</title>
+<style>body{font-family:-apple-system,Roboto,sans-serif;max-width:1000px;margin:40px auto;padding:0 16px;}
+.card{box-shadow:0 6px 20px rgba(0,0,0,.08);border-radius:14px;padding:16px;margin:18px 0;}
+h1{font-size:28px} h2{font-size:20px;margin-bottom:12px} img{max-width:100%;border-radius:10px;}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}@media(min-width:900px){.grid{grid-template-columns:1fr 1fr;}}
+.muted{color:#666;font-size:13px}</style></head><body>
+<h1>Macro Dashboard — Step 1 <span class='muted'>(Generated 2025-10-10 21:12)</span></h1>
+<div class='card'>
+<h2>Rates — US10Y & US2Y</h2>
+<p>장단기 금리 수준과 스프레드는 경기/리스크 선호에 민감합니다.</p>
+<div class='grid'>
+<div><img src='charts/ts_us10_vs_us2.png'/><div class='muted'>charts/ts_us10_vs_us2.png</div></div>
+</div></div>
+<div class='card'>
+<h2>Real Yield & Breakeven</h2>
+<p>실질금리(10Y TIPS)와 브레이크이븐(기대 인플레)의 변화를 월말 기준으로 추적합니다.</p>
+<div class='grid'>
+<div><img src='charts/ts_tips10.png'/><div class='muted'>charts/ts_tips10.png</div></div>
+<div><img src='charts/ts_breakeven10.png'/><div class='muted'>charts/ts_breakeven10.png</div></div>
+</div></div>
+<div class='card'>
+<h2>Dollar / FX & Credit</h2>
+<p>달러 강세(DXY), 원/달러, 하이일드 스프레드(HY OAS)를 묶어 유동성과 리스크 프리미엄을 확인합니다.</p>
+<div class='grid'>
+<div><img src='charts/ts_dxy.png'/><div class='muted'>charts/ts_dxy.png</div></div>
+<div><img src='charts/ts_usdkrw.png'/><div class='muted'>charts/ts_usdkrw.png</div></div>
+<div><img src='charts/ts_hyoas.png'/><div class='muted'>charts/ts_hyoas.png</div></div>
+</div></div>
+<div class='card'>
+<h2>Latest Δ3M / Δ1Y</h2>
+<p>최근 3개월/1년 변화량을 한눈에 비교합니다.</p>
+<div class='grid'>
+<div><img src='charts/bars_latest_deltas.png'/><div class='muted'>charts/bars_latest_deltas.png</div></div>
+</div></div>
+</body></html>
