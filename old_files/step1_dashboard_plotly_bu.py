@@ -1,10 +1,11 @@
 # step1_dashboard_plotly.py
 # -----------------------------------------------------------
 # Interactive Macro Dashboard (Plotly) with per-chart subtitles
-# Tabs UI + Global Equities (Local & USD terms) + Commodities + Crypto (Majors/Alts)
+# + Global Equities (10) & Commodities (5) section
+# + USD terms (FX-adjusted) for global indices
 # - 3y data from FRED + yfinance (with fallbacks)
 # - Monthly EOM resample, derived (breakeven, curve), Δ3M/Δ1Y
-# - Single HTML report with interactive tabs
+# - Single HTML report with interactive charts + range slider
 # -----------------------------------------------------------
 import os, datetime as dt
 from pathlib import Path
@@ -84,7 +85,7 @@ def last_label(ts, unit=""):
     return f"{float(v):,.2f}"
 
 # ---------- Figure builders (with subtitles) ----------
-def fig_line(ts, name, yaxis_title, unit=None, show_range_slider=True, subtitle=None, log_y=False):
+def fig_line(ts, name, yaxis_title, unit=None, show_range_slider=True, subtitle=None):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=ts.index, y=ts.values, name=name, mode="lines"))
     fig.update_layout(
@@ -95,9 +96,6 @@ def fig_line(ts, name, yaxis_title, unit=None, show_range_slider=True, subtitle=
         template="plotly_white",
         hovermode="x unified",
     )
-    if log_y:
-        fig.update_yaxes(type="log")
-
     if subtitle:
         fig.add_annotation(
             text=f"<b style='color:#666;font-size:13px'>{subtitle}</b>",
@@ -202,6 +200,8 @@ def fig_bar(series, title, yaxis_title):
     return fig
 
 # ===================== FX mapping for USD rebasing =====================
+# quote_type: 'usd_per_local'  (e.g., EURUSD=X, GBPUSD=X)  -> USD series = local_index * FX
+#              'local_per_usd' (e.g., KRW=X, JPY=X, CNY=X) -> USD series = local_index / FX
 FX_MAP = {
     "S&P 500 (^GSPC)":      {"fx": None,          "quote_type": None},            # already USD
     "Euro Stoxx 50 (^STOXX50E)": {"fx": "EURUSD=X", "quote_type": "usd_per_local"},
@@ -222,6 +222,7 @@ def to_usd_terms(series_local, fx_series, quote_type):
     s_fx  = fx_series.dropna()
     if s_loc.empty or s_fx.empty:
         return None
+    # 월말로 이미 맞춘 후 공통 교집합
     idx = s_loc.index.intersection(s_fx.index)
     if len(idx) == 0:
         return None
@@ -308,7 +309,7 @@ def main():
             if s is not None and not s.empty:
                 local_eom[name] = s
 
-    # FX EOM (for USD rebasing)
+    # FX EOM
     fx_eom = {}
     for name, meta in FX_MAP.items():
         fx_tkr = meta["fx"]
@@ -324,11 +325,12 @@ def main():
         fx_s = fx_eom.get(name, None) if meta["fx"] else None
         usd_series = to_usd_terms(s_local, fx_s, meta["quote_type"])
         if usd_series is None and meta["fx"] is None:
-            usd_series = s_local.copy()  # already USD (S&P 500)
+            # already USD (e.g., S&P 500)
+            usd_series = s_local.copy()
         if usd_series is not None and not usd_series.empty:
             usd_eom[name + " [USD]"] = usd_series
 
-    # Commodities (USD)
+    # Commodities (already USD quoted)
     comm_eom = {}
     for name, tkr in commodities.items():
         df, _ = yf_series_multi([tkr])
@@ -337,204 +339,116 @@ def main():
             if s is not None and not s.empty:
                 comm_eom[name] = s
 
-    # ---------- Crypto (Majors / Alts) ----------
-    crypto_majors = {
-        "BTC-USD": "BTC-USD",
-        "ETH-USD": "ETH-USD",
-        "BNB-USD": "BNB-USD",
-        "SOL-USD": "SOL-USD",
-        "XRP-USD": "XRP-USD",
-    }
-    crypto_alts = {
-        "ADA-USD": "ADA-USD",
-        "DOGE-USD": "DOGE-USD",
-        "AVAX-USD": "AVAX-USD",
-        "LINK-USD": "LINK-USD",
-        "LTC-USD": "LTC-USD",
-    }
-
-    def crypto_eom_map(symbols):
-        out = {}
-        for name, tkr in symbols.items():
-            df, _ = yf_series_multi([tkr])
-            if df is not None and not df.empty:
-                s = eom(df)
-                if s is not None and not s.empty:
-                    out[name] = s
-        return out
-
-    majors_eom = crypto_eom_map(crypto_majors)
-    alts_eom   = crypto_eom_map(crypto_alts)
-
-    # ===== Figures (Macro Overview) =====
-    figs_overview = []
+    # ===== Figures =====
+    figs = []
 
     if dgs10_m is not None and dgs2_m is not None and len(dgs10_m) and len(dgs2_m):
-        figs_overview.append(("Rates — US10Y & US2Y",
-                              fig_two_lines(
-                                  dgs10_m, dgs2_m, "US10Y", "US2Y",
-                                  "Yield (%)", unit="pct",
-                                  subtitle="장·단기 금리 비교 — 경기 싸이클 및 정책금리 기대 반영",
-                                  legend_pos="top-right", subtitle_y=1.34
-                              )))
+        figs.append(("Rates — US10Y & US2Y",
+                     fig_two_lines(
+                         dgs10_m, dgs2_m, "US10Y", "US2Y",
+                         "Yield (%)", unit="pct",
+                         subtitle="장·단기 금리 비교 — 경기 싸이클 및 정책금리 기대 반영",
+                         legend_pos="top-right", subtitle_y=1.34
+                     )))
     if tips_m is not None and len(tips_m):
-        figs_overview.append(("10Y TIPS Real Yield",
-                              fig_line(tips_m, "10Y TIPS Real Yield", "Yield (%)",
-                                       unit="pct",
-                                       subtitle="실질금리 — 금융 여건 및 할인율 지표 (상승 시 위험자산 압박)")))
+        figs.append(("10Y TIPS Real Yield",
+                     fig_line(tips_m, "10Y TIPS Real Yield", "Yield (%)",
+                              unit="pct",
+                              subtitle="실질금리 — 금융 여건 및 할인율 지표 (상승 시 위험자산 압박)")))
     if be_m is not None and len(be_m):
-        figs_overview.append(("10Y Breakeven",
-                              fig_line(be_m, "10Y Breakeven", "bps", unit="bps",
-                                       subtitle="시장 기대 인플레이션 — 향후 10년 평균 물가 기대")))
+        figs.append(("10Y Breakeven",
+                     fig_line(be_m, "10Y Breakeven", "bps", unit="bps",
+                              subtitle="시장 기대 인플레이션 — 향후 10년 평균 물가 기대")))
     if curve_m is not None and len(curve_m):
-        figs_overview.append(("10Y–2Y Curve",
-                              fig_line(curve_m, "10Y–2Y Curve", "bps", unit="bps",
-                                       subtitle="수익률 곡선 — 장단기 금리차, 경기 침체 선행 신호")))
+        figs.append(("10Y–2Y Curve",
+                     fig_line(curve_m, "10Y–2Y Curve", "bps", unit="bps",
+                              subtitle="수익률 곡선 — 장단기 금리차, 경기 침체 선행 신호")))
     if dxy_m is not None and len(dxy_m):
         dxy_title = "DXY (Dollar Index)" + (f" — used {dxy_used}" if dxy_used else "")
-        figs_overview.append(("DXY (Dollar Index)",
-                              fig_line(dxy_m, dxy_title, "Index", unit="idx",
-                                       subtitle="달러 강세/약세 — 글로벌 자금 흐름 및 위험선호 지표")))
+        figs.append(("DXY (Dollar Index)",
+                     fig_line(dxy_m, dxy_title, "Index", unit="idx",
+                              subtitle="달러 강세/약세 — 글로벌 자금 흐름 및 위험선호 지표")))
     if usdk_m is not None and len(usdk_m):
-        figs_overview.append(("USDKRW",
-                              fig_line(usdk_m, "USDKRW", "KRW per USD", unit="fx",
-                                       subtitle="원화 환율 — 외국인 자금 유출입과 국내 Risk-On/Off 체감")))
+        figs.append(("USDKRW",
+                     fig_line(usdk_m, "USDKRW", "KRW per USD", unit="fx",
+                              subtitle="원화 환율 — 외국인 자금 유출입과 국내 Risk-On/Off 체감")))
     if vix_m is not None and len(vix_m):
-        figs_overview.append(("VIX",
-                              fig_line(vix_m, "VIX", "Index", unit="idx",
-                                       subtitle="S&P500 변동성 (공포지수) — 시장 불확실성 척도")))
+        figs.append(("VIX",
+                     fig_line(vix_m, "VIX", "Index", unit="idx",
+                              subtitle="S&P500 변동성 (공포지수) — 시장 불확실성 척도")))
     if hyoas_m is not None and len(hyoas_m):
-        figs_overview.append(("HY OAS",
-                              fig_line(hyoas_m, "HY OAS", "bps", unit="bps",
-                                       subtitle="하이일드 채권 스프레드 — 신용위험/유동성 스트레스")))
+        figs.append(("HY OAS",
+                     fig_line(hyoas_m, "HY OAS", "bps", unit="bps",
+                              subtitle="하이일드 채권 스프레드 — 신용위험/유동성 스트레스")))
 
     bar_fig = fig_bar(bar_ser, "Latest Δ3M / Δ1Y", "Δ (unit per label)") if (bar_ser is not None and not bar_ser.empty) else None
 
-    # ===== Global Equities — Local =====
-    figs_local = []
-    for name, series in local_eom.items():
-        figs_local.append((name, fig_line(series, name, "Index", unit="idx",
-                                          subtitle=f"{name} — Local currency terms")))
-
-    # ===== Global Equities — USD Terms =====
-    figs_usd = []
-    for name, series in usd_eom.items():
-        figs_usd.append((name, fig_line(series, name, "Index (USD terms)", unit="idx",
-                                        subtitle=f"{name} — USD terms (FX-adjusted)")))
-
-    # ===== Commodities =====
-    figs_comm = []
-    for name, series in comm_eom.items():
-        figs_comm.append((name, fig_line(series, name, "Price (USD)", unit="idx",
-                                         subtitle=f"{name} — 주요 원자재 가격 추이")))
-
-    # ===== Crypto Majors (log scale) =====
-    figs_cmaj = []
-    for name, series in majors_eom.items():
-        title = name.replace("-USD", "")
-        figs_cmaj.append((title, fig_line(series, title, "Price (USD, log)", unit="idx",
-                                          subtitle=f"{title} — Major crypto", log_y=True)))
-
-    # ===== Crypto Alts (log scale) =====
-    figs_calt = []
-    for name, series in alts_eom.items():
-        title = name.replace("-USD", "")
-        figs_calt.append((title, fig_line(series, title, "Price (USD, log)", unit="idx",
-                                          subtitle=f"{title} — Altcoin", log_y=True)))
-
-    # ===== HTML assemble with TABS =====
+    # ===== HTML assemble =====
     from plotly.offline import plot as plot_offline
-
-    def section_html(section_id, title, figs):
-        parts = [f"<div class='tab-section' id='{section_id}' style='display:none'>"]
-        parts.append(f"<div class='card'><h2>{title}</h2><div class='grid'>")
-        first_local = True
-        for t, f in figs:
-            parts.append(plot_offline(f, include_plotlyjs=False, output_type='div'))
-            first_local = False
-        parts.append("</div></div></div>")
-        return "\n".join(parts)
-
     html_parts = [
         "<!doctype html><html><head><meta charset='utf-8'>",
         "<meta name='viewport' content='width=device-width, initial-scale=1'>",
         "<title>Macro Dashboard — Plotly</title>",
-        # ---------- Styles ----------
-        "<style>",
-        "body{font-family:-apple-system,Roboto,Segoe UI,Helvetica,Arial,sans-serif;max-width:1200px;margin:40px auto;padding:0 16px}",
+        "<style>body{font-family:-apple-system,Roboto,Segoe UI,Helvetica,Arial,sans-serif;max-width:1200px;margin:40px auto;padding:0 16px}",
         ".card{box-shadow:0 8px 28px rgba(0,0,0,.08);border-radius:14px;padding:16px;margin:20px 0}",
         "h1{font-size:28px;margin:0 0 8px}h2{font-size:20px;margin:0 0 12px}p{line-height:1.55;color:#333}",
         ".grid{display:grid;grid-template-columns:1fr;gap:16px}@media(min-width:1100px){.grid{grid-template-columns:1fr 1fr}}",
-        ".muted{color:#666;font-size:13px}",
-        ".tabs{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 20px}",
-        ".tabbtn{padding:8px 12px;border:1px solid #ddd;border-radius:10px;background:#f8f9fb;cursor:pointer}",
-        ".tabbtn.active{background:#2b6cb0;color:#fff;border-color:#2b6cb0}",
-        "</style>",
-        # ---------- Simple Tab Script ----------
-        "<script>",
-        "function showTab(id){",
-        "  const sections=document.querySelectorAll('.tab-section');",
-        "  sections.forEach(s=>s.style.display='none');",
-        "  const tabbtns=document.querySelectorAll('.tabbtn');",
-        "  tabbtns.forEach(b=>b.classList.remove('active'));",
-        "  document.getElementById(id).style.display='block';",
-        "  const btn=document.querySelector(`[data-target='${id}']`);",
-        "  if(btn) btn.classList.add('active');",
-        "  window.scrollTo({top:0,behavior:'smooth'});",
-        "}",
-        "document.addEventListener('DOMContentLoaded',()=>{ showTab('tab-overview'); });",
-        "</script>",
-        "</head><body>",
-        f"<h1>Macro Dashboard — Plotly <span class='muted'>(Generated {dt.datetime.now().strftime('%Y-%m-%d %H:%M')})</span></h1>",
-        # ---------- Tabs ----------
-        "<div class='tabs'>",
-        "<button class='tabbtn active' data-target='tab-overview' onclick=\"showTab('tab-overview')\">Overview (Macro)</button>",
-        "<button class='tabbtn' data-target='tab-global-local' onclick=\"showTab('tab-global-local')\">Global Equities (Local)</button>",
-        "<button class='tabbtn' data-target='tab-global-usd' onclick=\"showTab('tab-global-usd')\">Global Equities (USD)</button>",
-        "<button class='tabbtn' data-target='tab-commodities' onclick=\"showTab('tab-commodities')\">Commodities</button>",
-        "<button class='tabbtn' data-target='tab-crypto-majors' onclick=\"showTab('tab-crypto-majors')\">Crypto (Majors)</button>",
-        "<button class='tabbtn' data-target='tab-crypto-alts' onclick=\"showTab('tab-crypto-alts')\">Crypto (Alts)</button>",
-        "</div>",
-        # load plotly once via CDN
-        "<script src='https://cdn.plot.ly/plotly-latest.min.js'></script>"
+        ".muted{color:#666;font-size:13px}</style></head><body>",
+        f"<h1>Macro Dashboard — Plotly <span class='muted'>(Generated {dt.datetime.now().strftime('%Y-%m-%d %H:%M')})</span></h1>"
     ]
 
-    # Sections
-    # Overview (Macro) — group Macro charts + Δ panel
-    ov_html = ["<div class='tab-section' id='tab-overview' style='display:none'>"]
-    ov_html.append("<div class='card'><h2>Rates</h2><div class='grid'>")
-    for t, f in figs_overview:
-        if t in {"Rates — US10Y & US2Y", "10Y TIPS Real Yield", "10Y Breakeven", "10Y–2Y Curve"}:
-            ov_html.append(plot_offline(f, include_plotlyjs=False, output_type='div'))
-    ov_html.append("</div></div>")
+    # Group: Rates
+    group1_titles = {"Rates — US10Y & US2Y", "10Y TIPS Real Yield", "10Y Breakeven", "10Y–2Y Curve"}
+    html_parts.append("<div class='card'><h2>Rates</h2><div class='grid'>")
+    first = True
+    for title, fig in figs:
+        if title in group1_titles:
+            html_parts.append(plot_offline(fig, include_plotlyjs='cdn' if first else False, output_type='div'))
+            first = False
+    html_parts.append("</div></div>")
 
-    ov_html.append("<div class='card'><h2>Dollar / FX & Credit</h2><div class='grid'>")
-    for t, f in figs_overview:
-        if t not in {"Rates — US10Y & US2Y", "10Y TIPS Real Yield", "10Y Breakeven", "10Y–2Y Curve"}:
-            ov_html.append(plot_offline(f, include_plotlyjs=False, output_type='div'))
-    ov_html.append("</div></div>")
+    # Group: Dollar/FX & Credit
+    html_parts.append("<div class='card'><h2>Dollar / FX & Credit</h2><div class='grid'>")
+    for title, fig in figs:
+        if title not in group1_titles:
+            html_parts.append(plot_offline(fig, include_plotlyjs=False, output_type='div'))
+    html_parts.append("</div></div>")
 
     if bar_fig is not None:
-        ov_html.append("<div class='card'><h2>Latest Δ3M / Δ1Y</h2>")
-        ov_html.append(plot_offline(bar_fig, include_plotlyjs=False, output_type='div'))
-        ov_html.append("</div>")
-    ov_html.append("</div>")
-    html_parts.append("\n".join(ov_html))
+        html_parts.append("<div class='card'><h2>Latest Δ3M / Δ1Y</h2>")
+        html_parts.append(plot_offline(bar_fig, include_plotlyjs=False, output_type='div'))
+        html_parts.append("</div>")
 
-    # Global Local
-    html_parts.append(section_html("tab-global-local", "Global Equities — Local", figs_local))
+    # Group: Global Equities (Local)
+    local_figs = []
+    for name, series in local_eom.items():
+        local_figs.append((name, fig_line(series, name, "Index", unit="idx",
+                                          subtitle=f"{name} — Local currency terms")))
+    if local_figs:
+        html_parts.append("<div class='card'><h2>Global Equities — Local</h2><div class='grid'>")
+        for title, fig in local_figs:
+            html_parts.append(plot_offline(fig, include_plotlyjs=False, output_type='div'))
+        html_parts.append("</div></div>")
 
-    # Global USD
-    html_parts.append(section_html("tab-global-usd", "Global Equities — USD Terms", figs_usd))
+    # Group: Global Equities (USD Terms)
+    usd_figs = []
+    for name, series in usd_eom.items():
+        usd_figs.append((name, fig_line(series, name, "Index (USD terms)", unit="idx",
+                                        subtitle=f"{name} — USD terms (FX-adjusted)")))
+    if usd_figs:
+        html_parts.append("<div class='card'><h2>Global Equities — USD Terms</h2><div class='grid'>")
+        for title, fig in usd_figs:
+            html_parts.append(plot_offline(fig, include_plotlyjs=False, output_type='div'))
+        html_parts.append("</div></div>")
 
-    # Commodities
-    html_parts.append(section_html("tab-commodities", "Commodities", figs_comm))
-
-    # Crypto Majors
-    html_parts.append(section_html("tab-crypto-majors", "Crypto (Majors)", figs_cmaj))
-
-    # Crypto Alts
-    html_parts.append(section_html("tab-crypto-alts", "Crypto (Alts)", figs_calt))
+    # Group: Commodities (USD quoted)
+    if comm_eom:
+        html_parts.append("<div class='card'><h2>Commodities</h2><div class='grid'>")
+        for name, series in comm_eom.items():
+            html_parts.append(plot_offline(fig_line(series, name, "Price (USD)", unit="idx",
+                                                    subtitle=f"{name} — 주요 원자재 가격 추이"),
+                                           include_plotlyjs=False, output_type='div'))
+        html_parts.append("</div></div>")
 
     html_parts.append("</body></html>")
     HTML_PATH.write_text("\n".join(html_parts), encoding="utf-8")
